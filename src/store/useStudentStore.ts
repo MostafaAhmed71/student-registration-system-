@@ -53,7 +53,31 @@ const executeGitCommand = async (command: string): Promise<void> => {
 };
 
 const createStudentStore: StateCreator<StudentStore> = (set, get) => {
-  let refreshInterval: number | null = null;
+  let subscription: ReturnType<typeof supabase.channel> | null = null;
+
+  const setupRealtimeSubscription = () => {
+    if (subscription) {
+      subscription.unsubscribe();
+    }
+
+    subscription = supabase
+      .channel('students-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'students'
+        },
+        () => {
+          console.log('تم استلام تحديث من Supabase');
+          get().fetchStudents();
+        }
+      )
+      .subscribe((status) => {
+        console.log('حالة الاتصال:', status);
+      });
+  };
 
   return {
     sections: initialSections,
@@ -102,7 +126,6 @@ const createStudentStore: StateCreator<StudentStore> = (set, get) => {
 
         set({ sections });
         
-        // تحديث Git بعد تحديث البيانات
         await get().autoGitUpdate();
       } catch (error) {
         console.error('خطأ في جلب الطلاب:', error);
@@ -110,21 +133,14 @@ const createStudentStore: StateCreator<StudentStore> = (set, get) => {
     },
 
     startAutoRefresh: () => {
-      if (refreshInterval) return;
-      
-      // تحديث البيانات كل 5 ثواني
-      refreshInterval = window.setInterval(() => {
-        get().fetchStudents();
-      }, 5000);
-
-      // جلب البيانات فوراً عند بدء التحديث التلقائي
-      get().fetchStudents();
+      setupRealtimeSubscription();
+      get().fetchStudents(); // جلب البيانات الأولية
     },
 
     stopAutoRefresh: () => {
-      if (refreshInterval) {
-        window.clearInterval(refreshInterval);
-        refreshInterval = null;
+      if (subscription) {
+        subscription.unsubscribe();
+        subscription = null;
       }
     },
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Student } from '../types';
 import confetti from 'canvas-confetti';
+import { useSectionContext } from '../context/SectionContext';
 
 interface CelebrationStudent extends Student {
   number: number;
@@ -9,17 +10,16 @@ interface CelebrationStudent extends Student {
 
 interface CelebrationViewProps {
   students: CelebrationStudent[];
-  onComplete: () => void;
   sectionColor: string;
 }
 
 const CelebrationView: React.FC<CelebrationViewProps> = ({
   students,
-  onComplete,
   sectionColor,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [phase, setPhase] = useState<'announcement' | 'name'>('announcement');
+  const { endCelebration } = useSectionContext();
 
   const launchConfetti = () => {
     const defaults = {
@@ -154,7 +154,7 @@ const CelebrationView: React.FC<CelebrationViewProps> = ({
               launchConfetti();
               setTimeout(() => {
                 launchConfetti();
-                setTimeout(onComplete, 2000);
+                setTimeout(endCelebration, 2000);
               }, 1500);
             }, 1500);
           } else {
@@ -165,113 +165,102 @@ const CelebrationView: React.FC<CelebrationViewProps> = ({
         return () => clearTimeout(timer);
       }
     }
-  }, [currentIndex, phase, students.length, onComplete]);
+  }, [currentIndex, phase, students.length, endCelebration]);
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/90 z-50">
-      <AnimatePresence mode="wait">
-        {currentIndex >= 0 && currentIndex < students.length && (
-          phase === 'announcement' ? (
+    <motion.div
+      className="fixed inset-0 flex items-center justify-center z-50 overflow-hidden"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      {/* Background Image */}
+      <div 
+        className="absolute inset-0 z-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "url('/Background.jpg')",
+          filter: 'brightness(0.3) blur(4px)'
+        }}
+      />
+      
+      <div className="relative w-full h-full flex flex-col items-center justify-center z-10">
+        {/* Side decorative bars */}
+        <motion.div
+          className="absolute left-0 h-full w-4"
+          style={{ backgroundColor: sectionColor }}
+          initial={{ scaleY: 0 }}
+          animate={{ scaleY: 1 }}
+          transition={{ duration: 0.5 }}
+        />
+        <motion.div
+          className="absolute right-0 h-full w-4"
+          style={{ backgroundColor: sectionColor }}
+          initial={{ scaleY: 0 }}
+          animate={{ scaleY: 1 }}
+          transition={{ duration: 0.5 }}
+        />
+
+        <AnimatePresence mode="wait">
+          {currentIndex >= 0 && currentIndex < students.length && (
             <motion.div
-              key="announcement"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ 
-                scale: [1, 1.2, 1],
-                opacity: 1,
-              }}
-              exit={{ 
-                scale: 2,
-                opacity: 0,
-              }}
-              transition={{
-                duration: 1,
-                times: [0, 0.5, 1],
-              }}
+              key={`${currentIndex}-${phase}`}
               className="text-center"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.5 }}
             >
-              <div 
-                className="text-6xl font-bold mb-6"
-                style={{ 
-                  color: sectionColor,
-                  textShadow: `
-                    0 0 20px ${sectionColor},
-                    0 0 40px ${sectionColor}
-                  `,
-                }}
-              >
-                المتأهل
-              </div>
-              <motion.div
-                animate={{
-                  scale: [1, 1.2, 1],
-                }}
-                transition={{
-                  duration: 1.5,
-                  repeat: Infinity,
-                }}
-                className="text-9xl font-bold"
-                style={{ 
-                  color: 'white',
-                  textShadow: `
-                    0 0 30px ${sectionColor},
-                    0 0 60px ${sectionColor}
-                  `,
-                }}
-              >
-                {students[currentIndex].number}
-              </motion.div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="name"
-              className="relative bg-black/30 px-20 py-10 rounded-2xl backdrop-blur-sm"
-              initial={{ scale: 0, opacity: 0, y: 50 }}
-              animate={{ 
-                scale: 1, 
-                opacity: 1,
-                y: 0,
-                transition: { 
-                  type: "spring",
-                  stiffness: 400,
-                  damping: 25
-                }
-              }}
-              exit={{ 
-                scale: 1.5,
-                opacity: 0,
-                y: -100,
-                transition: { duration: 1.2, ease: "easeOut" }
-              }}
-            >
-              <motion.div
-                animate={{
-                  y: [0, -10, 0],
-                }}
-                transition={{
-                  repeat: Infinity,
-                  duration: 2,
-                  ease: "easeInOut",
-                }}
-              >
-                <div 
-                  className="text-8xl font-bold text-center"
-                  style={{ 
-                    color: 'white',
-                    textShadow: `
-                      0 0 30px ${sectionColor},
-                      0 0 60px ${sectionColor},
-                      0 0 90px ${sectionColor}
-                    `,
-                  }}
-                >
-                  {students[currentIndex].name}
+              {phase === 'announcement' ? (
+                <div className="text-4xl font-bold text-white mb-4">
+                  {students[currentIndex].number === 1 ? (
+                    <span>🏆 المركز الأول 🏆</span>
+                  ) : students[currentIndex].number === 2 ? (
+                    <span>🥈 المركز الثاني 🥈</span>
+                  ) : students[currentIndex].number === 3 ? (
+                    <span>🥉 المركز الثالث 🥉</span>
+                  ) : (
+                    <span>المركز {students[currentIndex].number}</span>
+                  )}
                 </div>
-              </motion.div>
+              ) : (
+                <div className="space-y-4">
+                  <motion.h2
+                    className="text-6xl font-bold"
+                    style={{ color: sectionColor }}
+                    initial={{ scale: 0.8 }}
+                    animate={{ scale: 1 }}
+                    transition={{
+                      duration: 0.5,
+                      type: "spring",
+                      stiffness: 200
+                    }}
+                  >
+                    {students[currentIndex].name}
+                  </motion.h2>
+                </div>
+              )}
             </motion.div>
-          )
-        )}
-      </AnimatePresence>
-    </div>
+          )}
+        </AnimatePresence>
+
+        {/* Progress indicator */}
+        <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-2">
+          {students.map((_, index) => (
+            <motion.div
+              key={index}
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: index === currentIndex ? sectionColor : 'white',
+                opacity: index === currentIndex ? 1 : 0.5
+              }}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: index * 0.1 }}
+            />
+          ))}
+        </div>
+      </div>
+    </motion.div>
   );
 };
 
