@@ -1,5 +1,6 @@
 import { create, StateCreator } from 'zustand';
 import { SectionData, Student, SectionType } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface StudentStore {
   sections: SectionData[];
@@ -7,8 +8,6 @@ interface StudentStore {
   fetchStudents: () => Promise<void>;
   deleteStudent: (studentId: string, sectionId: SectionType, position: number) => Promise<{ success: boolean; message?: string }>;
 }
-
-const STORAGE_KEY = 'student-sections';
 
 const initialSections: SectionData[] = [
   {
@@ -37,103 +36,151 @@ const initialSections: SectionData[] = [
   },
 ];
 
-// حفظ البيانات في التخزين المحلي
-const saveToStorage = (sections: SectionData[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sections));
-};
-
-// استرجاع البيانات من التخزين المحلي
-const loadFromStorage = (): SectionData[] => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return initialSections;
-  
-  // تحويل البيانات المخزنة إلى النموذج الجديد
-  const parsedSections = JSON.parse(stored);
-  return parsedSections.map((section: SectionData) => ({
-    ...section,
-    students: Array(15).fill(null).map((_, i) => 
-      i < section.students.length ? section.students[i] : null
-    ),
-  }));
-};
-
 const createStudentStore: StateCreator<StudentStore> = (set, get) => ({
-  sections: loadFromStorage(),
+  sections: initialSections,
 
   fetchStudents: async () => {
-    set({ sections: loadFromStorage() });
+    try {
+      console.log('جاري جلب الطلاب من Supabase...');
+      const { data: students, error } = await supabase
+        .from('students')
+        .select('*')
+        .order('position');
+
+      if (error) {
+        console.error('خطأ في جلب الطلاب:', error);
+        throw error;
+      }
+
+      console.log('تم جلب الطلاب:', students);
+
+      // تحديث الأقسام بالطلاب
+      const sections = initialSections.map(section => ({
+        ...section,
+        students: Array(15).fill(null),
+      }));
+
+      // توزيع الطلاب على الأقسام
+      students?.forEach(student => {
+        const sectionIndex = sections.findIndex(s => s.id === student.section);
+        if (sectionIndex !== -1 && student.position > 0 && student.position <= 15) {
+          sections[sectionIndex].students[student.position - 1] = {
+            id: student.id,
+            name: student.name,
+          };
+        }
+      });
+
+      set({ sections });
+    } catch (error) {
+      console.error('خطأ في جلب الطلاب:', error);
+    }
   },
 
   deleteStudent: async (studentId: string, sectionId: SectionType, position: number) => {
     try {
-      const sections = [...get().sections];
-      const sectionIndex = sections.findIndex(s => s.id === sectionId);
+      console.log('جاري حذف الطالب...', { studentId, sectionId, position });
+
+      // حذف الطالب من Supabase
+      const { error: deleteError } = await supabase
+        .from('students')
+        .delete()
+        .eq('id', studentId);
+
+      if (deleteError) {
+        console.error('خطأ في حذف الطالب:', deleteError);
+        return { success: false, message: 'حدث خطأ أثناء حذف الطالب' };
+      }
+
+      // تحديث مواقع الطلاب الباقين
+      const { error: updateError } = await supabase.rpc('update_positions_after_delete', {
+        p_section_id: sectionId,
+        p_deleted_position: position
+      });
+
+      if (updateError) {
+        console.error('خطأ في تحديث المواقع:', updateError);
+      }
+
+      // تحديث الواجهة
+      await get().fetchStudents();
       
-      if (sectionIndex === -1) {
-        return { success: false, message: 'القسم غير موجود' };
-      }
-
-      // إزالة الطالب وتحديث المواقع
-      const section = sections[sectionIndex];
-      section.students[position - 1] = null;
-
-      // تحريك الطلاب الباقين للأمام
-      for (let i = position - 1; i < section.students.length - 1; i++) {
-        if (section.students[i + 1]) {
-          section.students[i] = section.students[i + 1];
-          section.students[i + 1] = null;
-        }
-      }
-
-      // حفظ التغييرات
-      set({ sections });
-      saveToStorage(sections);
-
-      return { success: true };
+      return { success: true, message: 'تم حذف الطالب بنجاح' };
     } catch (error) {
-      console.error('Error deleting student:', error);
-      return { success: false, message: 'حدث خطأ أثناء الحذف' };
+      console.error('خطأ غير متوقع في حذف الطالب:', error);
+      return { success: false, message: 'حدث خطأ غير متوقع أثناء الحذف' };
     }
   },
 
   addStudent: async (name: string, sectionId: SectionType) => {
     try {
-      const sections = [...get().sections];
-      const sectionIndex = sections.findIndex(s => s.id === sectionId);
-      
-      if (sectionIndex === -1) {
-        return { success: false, message: 'القسم غير موجود' };
+      console.log('جاري إضافة طالب جديد...', { name, sectionId });
+
+      // التحقق من صحة البيانات
+      if (!name.trim()) {
+        return { success: false, message: 'الرجاء إدخال اسم الطالب' };
       }
 
-      const section = sections[sectionIndex];
-      const emptySlotIndex = section.students.findIndex(s => s === null);
+      // التحقق من وجود الاسم في نفس القسم
+      const { data: existingStudents, error: checkError } = await supabase
+        .from('students')
+        .select('*')
+        .eq('section', sectionId)
+        .eq('name', name.trim());
 
-      if (emptySlotIndex === -1) {
-        return { success: false, message: 'القسم ممتلئ' };
+      if (checkError) {
+        console.error('خطأ في التحقق من وجود الاسم:', checkError);
+        return { success: false, message: 'حدث خطأ أثناء التحقق من الاسم' };
       }
 
-      const isDuplicate = section.students.some(
-        student => student && student.name === name
-      );
-
-      if (isDuplicate) {
+      if (existingStudents && existingStudents.length > 0) {
         return { success: false, message: 'الاسم موجود بالفعل في هذا القسم' };
       }
 
+      // حساب الموقع الجديد
+      const { data: currentStudents, error: countError } = await supabase
+        .from('students')
+        .select('position')
+        .eq('section', sectionId)
+        .order('position', { ascending: false });
+
+      if (countError) {
+        console.error('خطأ في حساب الموقع:', countError);
+        return { success: false, message: 'حدث خطأ أثناء تحديد موقع الطالب' };
+      }
+
+      const maxPosition = currentStudents && currentStudents.length > 0 ? currentStudents[0].position : 0;
+      const newPosition = maxPosition + 1;
+
+      if (newPosition > 15) {
+        return { success: false, message: 'القسم ممتلئ' };
+      }
+
       // إضافة الطالب
-      section.students[emptySlotIndex] = {
-        id: `${sectionId}-${Date.now()}`,
-        name: name.trim(),
-      };
+      const { data: newStudent, error: insertError } = await supabase
+        .from('students')
+        .insert([
+          {
+            name: name.trim(),
+            section: sectionId,
+            position: newPosition
+          }
+        ])
+        .select()
+        .single();
 
-      // حفظ التغييرات
-      set({ sections });
-      saveToStorage(sections);
+      if (insertError) {
+        console.error('خطأ في إضافة الطالب:', insertError);
+        return { success: false, message: 'حدث خطأ أثناء إضافة الطالب' };
+      }
 
-      return { success: true };
+      // تحديث واجهة المستخدم
+      await get().fetchStudents();
+
+      return { success: true, message: 'تم إضافة الطالب بنجاح' };
     } catch (error) {
-      console.error('Error adding student:', error);
-      return { success: false, message: 'حدث خطأ أثناء التسجيل' };
+      console.error('خطأ غير متوقع في إضافة الطالب:', error);
+      return { success: false, message: 'حدث خطأ غير متوقع أثناء الإضافة' };
     }
   },
 });

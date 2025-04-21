@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
 import { Student } from '../types';
-
+import { supabase } from '../lib/supabase';
 interface CelebrationStudent extends Student {
   number: number;
 }
