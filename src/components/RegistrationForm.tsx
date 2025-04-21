@@ -4,7 +4,11 @@ import { ClipboardList, Pencil, Trash2, X, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface RegistrationFormProps {
-  onAddStudent: (name: string, section: SectionType) => { success: boolean; message?: string };
+  onAddStudent: (name: string, section: SectionType) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
+  className?: string;
 }
 
 interface StudentListItem {
